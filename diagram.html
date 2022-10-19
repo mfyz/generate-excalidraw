@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Excali + Kroki Sample</title>
+</head>
+<body>
+<a href="javascript:saveExcalifile();">Download Excali File</a><br/>
+<object id="draw_svg" type="image/svg+xml"></object>
+<script src="https://unpkg.com/pako@1.0.10/dist/pako_deflate.min.js"></script>
+<script>
+// var diagramSource = 'digraph G { Hello->World }';
+// var url = 'https://kroki.io/graphviz/svg/';
+
+function createExcaliElement(type, x, y, w, h, props, custom){
+	let elemObj = {
+		"id": 'el' + Math.round(Math.random() * 80000) + 10000,
+		"version": 1,
+		"versionNonce": 26286089,
+		"isDeleted": false,
+		"seed": 1204929872,
+		"groupIds": [],
+		"updated": 1666139842224,
+		"link": null,
+		"locked": false,
+		"opacity": 100,
+		"angle": 0,
+		// Dynamic base element props
+		"type": type,
+		"x": x,
+		"y": y,
+		"width": w,
+		"height": h,
+		...props,
+	}
+
+	/* 
+	Posible Values:
+		"fillStyle"        // hachure | cross-hatch | solid
+		"strokeStyle"      // solid | dashed | dotted
+		"roughness"        // 0 | 1 | 2
+		"strokeSharpness"  // sharp | rounded
+	*/
+
+	if (typeof elemObj.fillStyle === 'number') {
+		if (elemObj.fillStyle === 1) { elemObj.fillStyle = 'hachure' }
+		if (elemObj.fillStyle === 2) { elemObj.fillStyle = 'cross-hatch' }
+		if (elemObj.fillStyle === 3) { elemObj.fillStyle = 'solid' }
+	}
+
+	if (type === 'text') {
+		elemObj = {
+			"text": "Text",
+			"fontSize": 20,
+			"fontFamily": 3,
+			"textAlign": "middle",
+			"verticalAlign": "middle",
+			...elemObj,
+		}
+		if (!elemObj.baseline) elemObj.baseline = elemObj.fontSize
+	}
+	else if (type === 'rectangle') {
+		elemObj = {
+			"strokeColor": "#000000",
+			"backgroundColor": "transparent",
+			"fillStyle": "hachure",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"strokeSharpness": "sharp",
+			...elemObj,
+		}
+	}
+	else if (type === 'arrow') {
+		var arrowGap = (typeof custom.arrowGap !== 'undefined') ? custom.arrowGap : 5
+		elemObj = {
+			"type": "arrow",
+			"strokeColor": "#000000",
+			"backgroundColor": "transparent",
+			"fillStyle": "hachure",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"strokeSharpness": "round",
+			"boundElements": null,
+			"lastCommittedPoint": null,
+			"startBinding": {
+				"elementId": custom.fromId,
+				"focus": 0,
+				"gap": arrowGap
+			},
+			"endBinding": {
+				"elementId": custom.toId,
+				"focus": 0,
+				"gap": arrowGap
+			},
+			"startArrowhead": null,
+			"endArrowhead": "arrow",
+			...elemObj,
+		}
+	}
+	else if (type === 'ellipse') {
+		elemObj = {
+			"fillStyle": "cross-hatch",
+			"strokeWidth": 1,
+			"strokeStyle": "solid",
+			"roughness": 1,
+			"opacity": 100,
+			"strokeColor": "#000000",
+			"backgroundColor": "transparent",
+			"strokeSharpness": "sharp",
+			...elemObj,
+		}
+	}
+
+	return elemObj;
+}
+
+function createExcaliArrow(fromId, toId, isVertical = false, props = {}, elementsObj = null) {
+	var arrowObjGap = 10;
+	var startX, startY;
+	var width = 0;
+	var height = 0;
+	if (!elementsObj) elementsObj = excaliObj.elements
+
+	if (!props.id) {
+		props.id = 'arrow' + Math.round(Math.random() * 800) + 100
+	}
+
+	// calculate start point
+	var startObj, endObj;
+	for (let i = 0; i < elementsObj.length; i += 1) {
+		if (elementsObj[i].id === fromId) {
+			startObj = elementsObj[i]
+		}
+		else if (elementsObj[i].id === toId) {
+			endObj = elementsObj[i]
+		}
+		// Add arrow to the from and to objects as bound prop (so objects stay linked with arrow)
+		if (elementsObj[i].id === fromId || elementsObj[i].id === toId) {
+			if (typeof elementsObj[i].boundElements !== 'object') elementsObj[i].boundElements = []
+			elementsObj[i].boundElements.push({
+				id: props.id,
+				type: 'arrow'
+			})
+		}
+	}
+
+	// console.log('found start and end objects', fromId, toId, startObj, endObj)
+
+	// Calculate starting point
+	if (isVertical) {
+		// start point: bottom center of fromId
+		x = startObj.x + (startObj.width / 2)
+		y = startObj.y + startObj.height + arrowObjGap
+		height = endObj.y - y - arrowObjGap
+	}
+	else { // horizontal
+		// start point: right center of fromId
+		x = startObj.x + startObj.width + arrowObjGap
+		y = startObj.y + (startObj.height / 2)
+		width = endObj.x - x - arrowObjGap
+	}
+
+	// console.log('--> x, y, width, height', x, y, width, height)
+
+	// calculate left center of toId
+
+	var points = [
+		[0, 0],
+		[width, height]
+	]
+
+	elementsObj.push(createExcaliElement('arrow', x, y, width, height, { points, ...props }, { fromId, toId, arrowGap: arrowObjGap }))
+}
+
+function createExcaliTextRect(x, y, w, h, text, props) {
+	var opts = {
+		id: 'rectTxt' + Math.round(Math.random() * 800) + 100,
+		...props
+	}
+	var textId = opts.id + '-text'
+	var rectTextElements = []
+	rectTextElements.push(createExcaliElement('rectangle', x, y, w, h, {
+		verticalAlign: "middle",
+		boundElements: [{
+			type: "text",
+			id: textId
+		}],
+		...opts,
+	}))
+	var textOpts = {
+		text,
+		textAlign: "center",
+		verticalAlign: "middle",
+		fontSize: 20,
+		...opts,
+		id: textId // has to be after opts concat above
+	}
+	var textLines = text.split('\n').length
+	var textHeight = textLines * (textOpts.fontSize)
+	var textY = y + (h / 2) - 2 // last 2px is subtracting the borders
+	textOpts.baseline = textHeight / 2 // vertically center align the starting position
+	textOpts.containerId = opts.id
+	rectTextElements.push(createExcaliElement('text', x + 10, textY, w - 20, textHeight, textOpts))
+	// console.log('--> rectTextElements', rectTextElements)
+	return rectTextElements
+}
+
+function createFlow(startX, startY, nodes, optsObj) {
+	var flowElements = []
+	var opts = {
+		width: 100,
+		height: 50,
+		isVertical: false,
+		rectangleProps: {},
+		arrowProps: {},
+		...optsObj
+	}
+
+	var flowId = 'flow' + Math.round(Math.random() * 800) + 100
+	var idBase = flowId + '-node'
+	var x = startX
+	var y = startY
+	var w = opts.width
+	var h = opts.height
+	var gap = opts.gap || w
+	for (let i = 0; i < nodes.length; i += 1) {
+		var nodeOpts = {
+			...opts.rectangleProps,
+			...(typeof nodes[i] === 'object' ? nodes[i] : {})
+		}
+		var id = idBase + (i + 1);
+		var text = typeof nodes[i] === 'string' ? nodes[i] : nodeOpts.text
+		flowElements = flowElements.concat(createExcaliTextRect(x, y, w, h, text, { id, ...nodeOpts }))
+
+		// Calculate next node position
+		if (opts.isVertical) { y += h + gap }
+		else { x += w + gap }
+
+		var arrowProps = {
+			...opts.arrowProps,
+			id: id + '-arrow'
+		}
+
+		// Arrow - connect with previous node
+		if (i > 0) {
+			createExcaliArrow(idBase + i, id, opts.isVertical, arrowProps, flowElements)
+		}
+	}
+	// console.log('--> flowElements', flowElements)
+	return flowElements
+}
+
+var excaliObj = {
+	"type": "excalidraw",
+	"version": 2,
+	"source": "mfyz-generated",
+	"elements": [],
+	"appState": {
+		"gridSize": null,
+		"viewBackgroundColor": "#ffffff"
+	},
+	"files": {}
+}
+
+// --- EXAMPLES START ---
+
+// excaliObj.elements = excaliObj.elements.concat(createFlow(800, 100, ["A", "B", "C"]))
+
+excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(300, 50, 150, 50, 'TextBox'))
+excaliObj.elements.push(createExcaliElement('text', 50, 50, 100, 30, { text: 'HEY!' }))
+excaliObj.elements.push(createExcaliElement('text', 50, 100, 150, 30, { text: 'Another Text' }))
+excaliObj.elements.push(createExcaliElement('rectangle', 50, 200, 150, 50, { id: 'rect1' }))
+excaliObj.elements.push(createExcaliElement('rectangle', 300, 200, 100, 50, { id: 'rect2', backgroundColor: '#ff0000' }))
+createExcaliArrow('rect1', 'rect2')
+excaliObj.elements.push(createExcaliElement('ellipse', 310, 350, 80, 80, { id: 'c1' }))
+createExcaliArrow('rect2', 'c1', true)
+
+// Text boxes - Defaults
+excaliObj.elements.push(createExcaliElement('rectangle', 50, 500, 30, 50, { backgroundColor: 'red', fillStyle: 3 })) // compare sizing
+excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(100, 500, 150, 50, 'Singe Line'))
+excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(300, 500, 150, 50, 'Two\nLines'))
+excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(500, 500, 150, 50, 'Long\nText\nBox'))
+// Text boxes - Smaller text
+excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(100, 600, 150, 50, 'Singe Line', { fontSize: 14 }))
+excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(300, 600, 150, 50, 'Two\nLines', { fontSize: 14, textAlign: 'left' }))
+excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(500, 600, 150, 50, 'Long\nText\nBox', { fontSize: 14, verticalAlign: 'top' }))
+// Text boxes - Larger boxes
+// excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(100, 700, 350, 150, 'Singe Line'))
+// excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(500, 700, 350, 150, 'Two\nLines'))
+// excaliObj.elements = excaliObj.elements.concat(createExcaliTextRect(900, 700, 350, 150, 'Long\nText\nBox'))
+
+// Generate flows automatically
+excaliObj.elements = excaliObj.elements.concat(createFlow(800, 100, ["A", "B", "C", "D"]))
+// Customized flow
+excaliObj.elements = excaliObj.elements.concat(createFlow(800, 250, [
+	"🚗 Start",
+	"Drive 200ft",
+	"← Turn Left",
+	"Drive 1mi",
+	"→ Turn Right",
+	"Drive 400ft",
+	{ text: "🏁 Arrive", strokeColor: 'green' },
+], {
+	width: 200,
+	gap: 40,
+	isVertical: true,
+	rectangleProps: { fontSize: 14, strokeStyle: 'dashed' },
+	arrowProps: { strokeColor: '#cccccc' }
+}))
+
+// --- EXAMPLES END ---
+
+console.log(excaliObj);
+
+var url = 'https://kroki.io/excalidraw/svg/';
+var diagramSource = JSON.stringify(excaliObj)
+
+var data = new TextEncoder('utf-8').encode(diagramSource)
+var compressed = pako.deflate(data, { level: 9, to: 'string' }) 
+var result = btoa(compressed) .replace(/\+/g, '-').replace(/\//g, '_') 
+
+//console.log(result);
+// document.querySelector('#draw').src = url + result;
+document.querySelector('#draw_svg').data = url + result;
+
+// TODO: Update links to open in new tabs - or top window
+// var links = document.querySelectorAll('#draw_svg a');
+// console.log(links);
+
+function download(filename, text) {
+  var element = document.createElement('a');
+  element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+  element.setAttribute('download', filename);
+  element.style.display = 'none';
+  document.body.appendChild(element);
+  element.click();
+  document.body.removeChild(element);
+}
+
+function saveExcalifile() {
+	download('file.excalidraw', JSON.stringify(excaliObj, null, 2))
+}
+</script>
+</body>
+</html>
